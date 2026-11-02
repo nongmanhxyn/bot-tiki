@@ -1,10 +1,11 @@
 import os
 import time
+import threading
 import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
+from flask import Flask
 
-# Load file .env nếu chạy ở máy local (trên Render/VPS thì nó tự đọc từ Environment Variables)
 load_dotenv()
 
 intents = discord.Intents.default()
@@ -15,11 +16,10 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 TARGET_CHANNEL_ID = 1566724665265619005
 
 # 3 bucket lưu trữ tối ưu
-ban_1h = {}        # Key: user_id, Value: {"guild_id": 123, "hours_left": 168}
-ban_15m = {}       # Key: user_id, Value: {"guild_id": 123, "minutes_left": 60}
-ban_sub_15m = {}   # Key: user_id, Value: {"guild_id": 123, "unban_timestamp": 1700000000}
+ban_1h = {}        
+ban_15m = {}       
+ban_sub_15m = {}   
 
-# Listrate theo dõi số lần ban trong 3 tháng
 listrate = {}
 THREE_MONTHS_SECONDS = 90 * 24 * 3600
 
@@ -41,7 +41,6 @@ async def on_message(message):
         user_id = user.id
         now = time.time()
 
-        # Quản lý listrate (3 tháng)
         if user_id in listrate:
             if now - listrate[user_id]["last_ban_time"] > THREE_MONTHS_SECONDS:
                 listrate[user_id] = {"name": str(user), "count": 1, "last_ban_time": now}
@@ -55,13 +54,11 @@ async def on_message(message):
         current_count = listrate[user_id]["count"]
 
         try:
-            # Kiểm tra tái phạm >= 3 lần thì ban vĩnh viễn
             if current_count >= 3:
                 await guild.ban(user, reason="Vi phạm quá 3 lần trong 3 tháng (Ban vĩnh viễn)", delete_message_days=0)
                 print(f"Đã BAN VĨNH VIỄN {user} do vi phạm lần thứ {current_count}.")
                 return
 
-            # Ban tạm thời 7 ngày
             await guild.ban(user, reason=f"Nhắn tin vào channel cấm (Lần {current_count}/3)", delete_message_days=0)
             
             ban_1h[user_id] = {
@@ -150,7 +147,22 @@ async def sub_15m_check():
 async def before_loops():
     await bot.wait_until_ready()
 
-# Lấy token an toàn từ biến môi trường (Environment Variable)
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is alive and running!"
+
+def run_web():
+    # Render sẽ cấp port qua biến môi trường PORT, mặc định là 5000 nếu chạy local
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
+# Chạy Flask ở một luồng (thread) riêng để không chặn luồng chạy của Discord bot
+threading.Thread(target=run_web).start()
+
+# Lấy token an toàn
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
     raise ValueError("Không tìm thấy biến môi trường DISCORD_TOKEN! Hãy kiểm tra lại.")
