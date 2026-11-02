@@ -74,6 +74,57 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
+# Cấu hình ID tin nhắn verify và Emoji ĐÚNG
+VERIFY_MESSAGE_ID = 1566824915292659783  # Thay ID tin nhắn verify vào đây
+CORRECT_EMOJI = "🦎"                   # Emoji đúng duy nhất
+
+# Dictionary lưu số lần vi phạm của user: {user_id: count}
+verify_violations = {}
+
+@bot.event
+async def on_raw_reaction_add(payload):
+    # Không tính phản ứng của bot
+    if payload.user_id == bot.user.id:
+        return
+
+    # Chỉ kiểm tra tin nhắn verify chỉ định
+    if payload.message_id == VERIFY_MESSAGE_ID:
+        guild = bot.get_guild(payload.guild_id)
+        if not guild:
+            return
+            
+        member = guild.get_member(payload.user_id)
+        if not member or member.bot:
+            return
+
+        emoji_name = str(payload.emoji)
+
+        # 1. Trường hợp bấm SAI emoji (Bấm vào emoji bẫy)
+        if emoji_name != CORRECT_EMOJI:
+            user_id = member.id
+            verify_violations[user_id] = verify_violations.get(user_id, 0) + 1
+            count = verify_violations[user_id]
+
+            if count >= 3:
+                try:
+                    await guild.ban(member, reason="Vi phạm verify 3 lần (Ban vĩnh viễn)")
+                    print(f"Đã BAN VĨNH VIỄN {member} do bấm sai emoji verify 3 lần.")
+                except Exception as e:
+                    print(f"Lỗi khi ban {member}: {e}")
+            else:
+                try:
+                    await guild.kick(member, reason=f"Bấm sai emoji verify (Lần {count}/3)")
+                    print(f"Đã KICK {member} do bấm sai emoji (Lần {count}/3).")
+                except Exception as e:
+                    print(f"Lỗi khi kick {member}: {e}")
+            return
+
+        # 2. Trường hợp bấm ĐÚNG emoji -> Cấp role thành viên
+        role = guild.get_role(1566718013753921576) # Thay ID role Member vào đây
+        if role:
+            await member.remove_roles(role)
+            print(f"Đã verify thành công cho {member}")
+
 # Task 1: Check mỗi 1 giờ
 @tasks.loop(hours=1.0)
 async def hourly_check():
